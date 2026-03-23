@@ -1,6 +1,7 @@
 from groq import Groq
 from dotenv import load_dotenv
 import os
+from llm.dev import dev_log_request, dev_log_response
 
 load_dotenv()
 
@@ -23,19 +24,25 @@ class AI:
             "content": message
         })
 
+        # ── Dev: log request before sending ──
+        start = dev_log_request(self.model, self.history)
+
         response = self.client.chat.completions.create(
             model=self.model,
             messages=self.history,
         )
 
-        reply = response.choices[0].message.content
+        raw = response.choices[0].message.content
+
+        # ── Dev: log raw response before any parsing ──
+        dev_log_response(raw, start)
 
         self.history.append({
             "role": "assistant",
-            "content": reply
+            "content": raw
         })
 
-        return reply
+        return raw
 
     def reset(self):
         system = self.history[0] if self.history and self.history[0]["role"] == "system" else None
