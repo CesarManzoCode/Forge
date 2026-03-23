@@ -18,6 +18,7 @@ from pathlib import Path
 from llm.ai import AI
 from tasks.execution.react import ReactLoop, ReactResult
 from tasks.execution.registry import registry, TOOLS
+from logs.logger import logger
 
 
 # ─────────────────────────────────────────────
@@ -204,6 +205,7 @@ class Executor:
         task["completed_at"] = datetime.now().isoformat()
         self._save_task(task)
         self._promote_context()
+        logger.task_done(task)
         self._emit("task_done", task)
 
     # ─────────────────────────────────────────
@@ -328,9 +330,10 @@ class Executor:
         )
 
     def _fail_task(self, task: dict, subtask: dict, reason: str):
-        task["status"] = "error"
+        task["status"]    = "error"
         task["failed_at"] = datetime.now().isoformat()
         self._save_task(task)
+        logger.task_failed(task, reason)
         self._emit("task_failed", {"subtask": subtask, "reason": reason})
 
     def _check_dependencies(self, subtask: dict, all_subtasks: list) -> int | None:

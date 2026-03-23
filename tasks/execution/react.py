@@ -30,6 +30,7 @@ from llm.ai import AI
 from llm.prompts import Executor
 from tasks.execution.registry import registry
 from src.security import SecurityError
+from logs.logger import logger
 
 
 MAX_STEPS = int(__import__("os").getenv("FORGE_MAX_STEPS", "20"))
@@ -117,7 +118,7 @@ class ReactLoop:
                 )
                 continue
 
-            observation, error = self._execute_tool(tool_name, tool_args)
+            observation, error = self._execute_tool(tool_name, tool_args, subtask.get("id"))
 
             step = Step(
                 thought=thought,
@@ -168,24 +169,24 @@ class ReactLoop:
         except json.JSONDecodeError as e:
             return {}, str(e)
 
-    def _execute_tool(self, tool_name: str, args: dict) -> tuple[str | None, str | None]:
-        """
-        Ejecuta una tool via registry.
-        Retorna (observation, error) — uno de los dos siempre es None.
-        """
+    def _execute_tool(self, tool_name: str, args: dict, subtask_id: int = None) -> tuple[str | None, str | None]:
         try:
             result = registry.call(tool_name, args)
+            logger.agent_action(tool_name, args, result, subtask_id)
             return result, None
         except KeyError as e:
-            return None, f"Tool not found: {e}"
+            err = f"Tool not found: {e}"
         except TypeError as e:
-            return None, f"Wrong arguments for '{tool_name}': {e}"
+            err = f"Wrong arguments for '{tool_name}': {e}"
         except SecurityError as e:
-            return None, f"Security block: {e}"
+            err = f"Security block: {e}"
         except (RuntimeError, FileNotFoundError, ValueError, PermissionError) as e:
-            return None, str(e)
+            err = str(e)
         except Exception as e:
-            return None, f"Unexpected error in '{tool_name}': {type(e).__name__}: {e}"
+            err = f"Unexpected error in '{tool_name}': {type(e).__name__}: {e}"
+
+        logger.agent_error(tool_name, args, err, subtask_id)
+        return None, err
 
     def _observation_prompt(self, tool_name: str, observation: str, step_num: int) -> str:
         """

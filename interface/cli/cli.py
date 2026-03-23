@@ -5,6 +5,7 @@ import json
 from datetime import datetime
 from llm.ai import AI
 from llm.prompts import SYSTEM, Planner, Chat
+from logs.logger import logger
 
 # ─────────────────────────────────────────────
 #  DISPLAY HELPERS
@@ -256,6 +257,7 @@ def cmd_start(ai: AI, active_executor: dict = None):
         print_error(str(e))
     except Exception as e:
         print_error(f"Execution engine crashed: {type(e).__name__}: {e}")
+        logger.crash("cmd_start", e)
         if os.getenv("DEV_MODE", "false").lower() == "true":
             import traceback as tb
             print()
@@ -303,6 +305,28 @@ def cmd_status():
 def cmd_reset(ai: AI):
     ai.reset()
     print_success("History cleared. System prompt preserved.")
+    import shutil
+
+    # Directorios que solo son validos durante una sesion
+    session_dirs = [
+        Path("context/task"),
+        Path("context/project"),
+        Path("tasks/execution"),
+    ]
+    session_files = [
+        Path("tasks/project/task.json"),
+    ]
+
+    for d in session_dirs:
+        if d.exists():
+            shutil.rmtree(d)
+            d.mkdir(parents=True, exist_ok=True)  # dejar carpeta vacia
+
+    for f in session_files:
+        if f.exists():
+            f.unlink()
+
+    logger.info("Session ended — context and task state cleared.")
 
 
 # ─────────────────────────────────────────────
@@ -377,6 +401,7 @@ def main():
                 continue
 
             if user_input == "/exit":
+                cmd_exit()
                 line("═")
                 print("  Goodbye.")
                 line("═")
@@ -419,6 +444,7 @@ def main():
             print()
         except Exception as e:
             print_error(f"Unexpected error: {type(e).__name__}: {e}")
+            logger.crash("main_loop", e)
             if os.getenv("DEV_MODE", "false").lower() == "true":
                 import traceback
                 print()
