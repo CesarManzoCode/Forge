@@ -16,7 +16,8 @@ def line(char="─", width=WIDTH):
     print(char * width)
 
 def header():
-    os.system("clear")
+    os.system("clear" if os.name != "nt" else "cls")
+    sys.stdout.flush()
     print("═" * WIDTH)
     print("  ███████╗ ██████╗ ██████╗  ██████╗ ███████╗")
     print("  ██╔════╝██╔═══██╗██╔══██╗██╔════╝ ██╔════╝")
@@ -339,6 +340,9 @@ def main():
                 print_agent(response)
 
         except KeyboardInterrupt:
+            listener.stop()
+            with listener._lock:
+                listener.command_queue.clear()
             print()
             line("─")
             print_info("Use /exit to quit cleanly.")
