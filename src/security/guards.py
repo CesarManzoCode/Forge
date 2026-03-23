@@ -58,7 +58,11 @@ def guard_path(path: str, operation: str = "access") -> Path:
         path: El path a validar (relativo o absoluto)
         operation: Descripcion de la operacion para el mensaje de error
     """
-    resolved = Path(path).resolve()
+    raw = Path(path)
+    if raw.is_absolute():
+        resolved = raw.resolve()
+    else:
+        resolved = (_cfg.project_root / raw).resolve()
 
     # Verificar que este dentro del proyecto
     try:
