@@ -32,13 +32,15 @@ CONTEXT_PROJECT_DIR = Path("context/project")
 
 # System prompt minimo para la AI de ejecucion
 # No necesita personalidad — solo comportamiento preciso
-_EXECUTION_SYSTEM = """You are a code execution agent. You complete development subtasks using tools.
+_EXEC_LANGUAGE = os.getenv("FORGE_LANGUAGE", "English")
+_EXECUTION_SYSTEM = f"""You are a code execution agent. You complete development subtasks using tools.
 Rules:
 - Use one tool at a time. Wait for the result before the next step.
 - Respond ONLY with valid JSON. No prose, no markdown, no explanation outside JSON.
-- When done: {"thought": "...", "done": true, "result": "concise summary"}
-- When using a tool: {"thought": "...", "tool": "tool_name", "args": {...}}
-- Stay focused on the current subtask only."""
+- When done: {{"thought": "...", "done": true, "result": "concise summary"}}
+- When using a tool: {{"thought": "...", "tool": "tool_name", "args": {{...}}}}
+- Stay focused on the current subtask only.
+- Always respond in {_EXEC_LANGUAGE}."""
 
 # Palabras clave para filtrar tools relevantes por subtask
 _TOOL_CATEGORIES = {

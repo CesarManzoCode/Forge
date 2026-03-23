@@ -1,20 +1,30 @@
 """
 prompts.py — Todos los prompts de Forge en un solo lugar.
 
+El idioma de las respuestas se controla via .env:
+    FORGE_LANGUAGE=Spanish   (default: English)
+
 Uso:
     from llm.prompts import SYSTEM, Planner, Chat
-
-Cada clase agrupa prompts del mismo dominio.
-Los prompts que necesitan datos usan .format() o f-strings via metodos.
 """
+
+import os
+
+# ─────────────────────────────────────────────
+#  LANGUAGE
+#  Se lee una sola vez al importar el modulo.
+#  Todos los prompts usan esta variable.
+# ─────────────────────────────────────────────
+
+LANGUAGE = os.getenv("FORGE_LANGUAGE", "English")
+_LANG_INSTRUCTION = f"Always respond in {LANGUAGE}."
 
 
 # ─────────────────────────────────────────────
 #  SYSTEM PROMPT
-#  El primero en el historial. Define quien es Forge.
 # ─────────────────────────────────────────────
 
-SYSTEM = """You are Forge, an expert AI agent built to assist software developers.
+SYSTEM = f"""You are Forge, an expert AI agent built to assist software developers.
 
 Your core traits:
 - Precise and technical. No filler, no padding.
@@ -29,12 +39,13 @@ Your current capabilities:
 - Search the internet
 - Plan and execute complex development tasks as ordered subtasks
 
+Language: {_LANG_INSTRUCTION}
+
 Always stay in your role as Forge. Never break character."""
 
 
 # ─────────────────────────────────────────────
 #  PLANNER PROMPTS
-#  Usados en /task para generar y revisar planes
 # ─────────────────────────────────────────────
 
 class Planner:
@@ -52,6 +63,7 @@ Rules:
 - No subtask should require human decisions mid-execution.
 - Maximum 8 subtasks. If the task genuinely needs more, it is too large — say so.
 - Be conservative. Fewer subtasks = fewer tokens = faster execution.
+- Subtask descriptions must be written in {LANGUAGE}.
 
 Respond ONLY with valid JSON. No explanation, no markdown, no extra text:
 
@@ -85,7 +97,8 @@ Before generating the full plan, you identified this blocker:
 {question}
 
 Ask the user this question clearly and concisely. One question only.
-Do not generate the plan yet."""
+Do not generate the plan yet.
+{_LANG_INSTRUCTION}"""
 
     @staticmethod
     def replan(original_plan: str, feedback: str) -> str:
@@ -103,7 +116,6 @@ No explanation, no markdown."""
 
 # ─────────────────────────────────────────────
 #  EXECUTOR PROMPTS
-#  Usados cuando execution/ corre cada subtask
 # ─────────────────────────────────────────────
 
 class Executor:
@@ -130,7 +142,8 @@ Result:
 {result}
 
 Summarize what was done in one or two sentences for the task log.
-Be factual, no commentary."""
+Be factual, no commentary.
+{_LANG_INSTRUCTION}"""
 
     @staticmethod
     def report_blocked(subtask_id: int, reason: str) -> str:
@@ -140,12 +153,12 @@ Reason:
 {reason}
 
 Explain the blocker clearly so the user can decide how to proceed.
-Do not suggest solutions unless explicitly asked."""
+Do not suggest solutions unless explicitly asked.
+{_LANG_INSTRUCTION}"""
 
 
 # ─────────────────────────────────────────────
 #  CONTEXT PROMPTS
-#  Para inyectar informacion al historial del LLM
 # ─────────────────────────────────────────────
 
 class Context:
@@ -183,7 +196,6 @@ Acknowledge with: understood."""
 
 # ─────────────────────────────────────────────
 #  CHAT PROMPTS
-#  Para conversacion general fuera de tasks
 # ─────────────────────────────────────────────
 
 class Chat:
@@ -195,18 +207,19 @@ class Chat:
 "{user_message}"
 
 Ask one clarifying question to understand their intent.
-Be direct and concise."""
+Be direct and concise.
+{_LANG_INSTRUCTION}"""
 
-    CANNOT_EXECUTE = """I can plan this task but I won't execute anything until you type /start.
+    CANNOT_EXECUTE = f"""I can plan this task but I won't execute anything until you type /start.
 Review the plan above and let me know if you want changes before we begin."""
 
-    TASK_ALREADY_RUNNING = """There is already a task in execution. 
+    TASK_ALREADY_RUNNING = f"""There is already a task in execution. 
 Type /status to see the current progress, or /reset to start fresh."""
 
-    NO_TASK_TO_START = """No task has been planned yet.
+    NO_TASK_TO_START = f"""No task has been planned yet.
 Use /task to describe what you want to accomplish."""
 
-    PLAN_READY = """Plan is ready. Review the subtasks above.
+    PLAN_READY = f"""Plan is ready. Review the subtasks above.
 
   /start     — execute the plan as shown
   /task      — describe a new task (discards current plan)
