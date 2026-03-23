@@ -132,9 +132,21 @@ def task_status() -> str:
 # ─────────────────────────────────────────────
 
 def cmd_task(ai: AI):
-    if task_status() == "running":
+    status = task_status()
+
+    if status == "running":
         print_agent(Chat.TASK_ALREADY_RUNNING)
         return
+
+    if status in ("planned", "error", "done", "paused"):
+        print_section("OVERWRITE EXISTING TASK")
+        print(f"  There is already a task with status: {status}")
+        sys.stdout.write("  Overwrite it? (y/N) > ")
+        sys.stdout.flush()
+        confirm = input().strip().lower()
+        if confirm != "y":
+            print_info("Cancelled.")
+            return
 
     print_section("NEW TASK")
     print("  Describe the task in detail.")
