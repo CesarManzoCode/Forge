@@ -1,0 +1,1 @@
+CONFIG = {'debug': False, 'version': '1.0', 'port': 9000}
