@@ -4,6 +4,7 @@ import os
 import json
 from datetime import datetime
 from llm.ai import AI
+from llm.prompts import SYSTEM, Planner, Chat
 
 # ─────────────────────────────────────────────
 #  DISPLAY HELPERS
@@ -59,24 +60,49 @@ def print_help():
     print("═" * WIDTH)
     print("  COMMANDS")
     print("─" * WIDTH)
+    print("  /task     Describe a new task for Forge to plan")
+    print("  /start    Execute the current plan")
+    print("  /status   Show subtask execution progress")
     print("  /reset    Clear conversation history")
-    print("  /task     Load a new task into tasks/")
-    print("  /status   Show current subtask execution status")
     print("  /help     Show this menu")
     print("  /exit     Exit Forge")
     print("─" * WIDTH)
-    print("  While agent is running you can type:")
-    print("  /status   Check progress")
-    print("  /stop     Interrupt current task  (coming soon)")
+    print("  While agent is running:")
+    print("  /status   Check progress at any time")
+    print("  /stop     Interrupt execution  (coming soon)")
     print("═" * WIDTH)
     print()
 
+def print_plan(data: dict):
+    risk_icons = {"low": "○", "medium": "◐", "high": "●"}
+    risk = data.get("risk_level", "unknown")
+    icon = risk_icons.get(risk, "?")
+
+    print()
+    print("═" * WIDTH)
+    print(f"  PLAN  ·  {data.get('title', 'Untitled')}")
+    print("─" * WIDTH)
+    print(f"  Risk      {icon}  {risk.upper()}")
+    print(f"  Subtasks  {data.get('estimated_subtasks', len(data.get('subtasks', [])))}")
+    print("─" * WIDTH)
+
+    for st in data.get("subtasks", []):
+        deps = f"  → after {st['depends_on']}" if st["depends_on"] else ""
+        print(f"  {st['id']:>2}.  {st['description']}{deps}")
+
+    print("─" * WIDTH)
+    print(f"  {Chat.PLAN_READY}")
+    print("═" * WIDTH)
+    print()
+
+
 # ─────────────────────────────────────────────
-#  TASK HELPERS
+#  TASK STATE
 # ─────────────────────────────────────────────
 
 TASK_FILE = "tasks/project/task.json"
 EXECUTION_DIR = "tasks/execution"
+
 
 def load_task_file() -> dict | None:
     if not os.path.exists(TASK_FILE):
@@ -84,16 +110,34 @@ def load_task_file() -> dict | None:
     with open(TASK_FILE, "r") as f:
         return json.load(f)
 
+
 def save_task_file(data: dict):
     os.makedirs(os.path.dirname(TASK_FILE), exist_ok=True)
     with open(TASK_FILE, "w") as f:
         json.dump(data, f, indent=2)
 
+
+def task_status() -> str:
+    data = load_task_file()
+    if not data:
+        return "none"
+    return data.get("status", "none")
+
+
+# ─────────────────────────────────────────────
+#  COMMANDS
+# ─────────────────────────────────────────────
+
 def cmd_task(ai: AI):
+    if task_status() == "running":
+        print_agent(Chat.TASK_ALREADY_RUNNING)
+        return
+
     print_section("NEW TASK")
     print("  Describe the task in detail.")
     print("  Type END on a new line when done.")
     print()
+
     lines = []
     while True:
         sys.stdout.write("  │  ")
@@ -108,80 +152,96 @@ def cmd_task(ai: AI):
         print_error("No task provided.")
         return
 
-    print_info("Sending to Forge planner...")
+    print_info("Forge is planning...")
 
-    planning_prompt = f"""You are a senior software engineer acting as a task planner.
-Break down the following task into small, chronological subtasks.
-Each subtask must be concrete and executable by an AI agent.
-
-Respond ONLY with a valid JSON object in this exact format, no extra text:
-{{
-  "title": "short title of the overall task",
-  "description": "original task description",
-  "subtasks": [
-    {{"id": 1, "description": "...", "status": "pending", "depends_on": [], "result": null, "context_written": []}},
-    {{"id": 2, "description": "...", "status": "pending", "depends_on": [1], "result": null, "context_written": []}}
-  ]
-}}
-
-Task:
-{raw_task}"""
-
-    response = ai.chat(planning_prompt)
+    response = ai.chat(Planner.generate(raw_task))
 
     try:
         start = response.find("{")
         end = response.rfind("}") + 1
         task_data = json.loads(response[start:end])
         task_data["created_at"] = datetime.now().isoformat()
-        task_data["status"] = "pending"
+        task_data["status"] = "planned"
         save_task_file(task_data)
-
-        print_success(f"Task planned: {task_data['title']}")
-        print_section("SUBTASKS")
-        for st in task_data["subtasks"]:
-            deps = f"  (after {st['depends_on']})" if st["depends_on"] else ""
-            print(f"  {st['id']:>2}.  {st['description']}{deps}")
-        print()
+        print_plan(task_data)
 
     except Exception as e:
         print_error(f"Could not parse plan: {e}")
-        print_info("Raw response saved for inspection.")
+        print_info("Raw response saved to tasks/execution/raw_plan.txt")
         os.makedirs(EXECUTION_DIR, exist_ok=True)
         with open(f"{EXECUTION_DIR}/raw_plan.txt", "w") as f:
             f.write(response)
 
+
+def cmd_start(ai: AI):
+    data = load_task_file()
+
+    if not data:
+        print_agent(Chat.NO_TASK_TO_START)
+        return
+
+    if data.get("status") == "running":
+        print_agent(Chat.TASK_ALREADY_RUNNING)
+        return
+
+    if data.get("status") not in ("planned", "paused"):
+        print_error(f"Task status is '{data.get('status')}' — cannot start.")
+        return
+
+    data["status"] = "running"
+    data["started_at"] = datetime.now().isoformat()
+    save_task_file(data)
+
+    print_success(f"Starting: {data.get('title')}")
+    print_info("Type /status to check progress.")
+    print()
+
+    # Execution engine connects here — tasks/execution/ coming next
+    print_agent(
+        f"Plan locked. {len(data.get('subtasks', []))} subtasks queued.\n"
+        f"Next: {data['subtasks'][0]['description']}\n\n"
+        f"[ execution engine not yet connected ]"
+    )
+
+
 def cmd_status():
     print_section("EXECUTION STATUS")
     data = load_task_file()
+
     if not data:
-        print_info("No active task found in tasks/project/task.json")
+        print_info("No active task found.")
         return
 
-    print(f"  Task   : {data.get('title', 'Untitled')}")
-    print(f"  Status : {data.get('status', 'unknown')}")
+    status = data.get("status", "unknown")
+    status_labels = {
+        "planned":  "○  Planned — type /start to execute",
+        "running":  "▶  Running",
+        "done":     "✓  Completed",
+        "paused":   "‖  Paused",
+        "error":    "✗  Error",
+    }
+
+    print(f"  Task    : {data.get('title', 'Untitled')}")
+    print(f"  Status  : {status_labels.get(status, status)}")
     print()
-
-    subtasks = data.get("subtasks", [])
-    if not subtasks:
-        print_info("No subtasks defined.")
-        return
 
     icons = {"done": "✓", "in_progress": "▶", "pending": "○", "error": "✗"}
-    for st in subtasks:
+    for st in data.get("subtasks", []):
         icon = icons.get(st["status"], "?")
-        print(f"  {icon}  [{st['id']:>2}]  {st['description']}")
+        result_preview = ""
         if st.get("result"):
-            print(f"         └─ {st['result'][:60]}...")
+            result_preview = f"\n         └─ {str(st['result'])[:56]}..."
+        print(f"  {icon}  [{st['id']:>2}]  {st['description']}{result_preview}")
     print()
+
 
 def cmd_reset(ai: AI):
     ai.reset()
     print_success("History cleared. System prompt preserved.")
 
+
 # ─────────────────────────────────────────────
 #  CONCURRENT INPUT LISTENER
-#  Runs in a separate thread while agent works
 # ─────────────────────────────────────────────
 
 class InputListener:
@@ -200,7 +260,7 @@ class InputListener:
         self._running = False
 
     def _listen(self):
-        print_info("Agent is working. You can type /status or /stop anytime.")
+        print_info("Forge is thinking. Type /status anytime.")
         while self._running:
             try:
                 sys.stdout.write("  » ")
@@ -213,7 +273,6 @@ class InputListener:
                 break
 
     def flush(self, ai: AI):
-        """Process any commands typed while agent was running."""
         with self._lock:
             cmds = self.command_queue[:]
             self.command_queue.clear()
@@ -226,24 +285,20 @@ class InputListener:
             elif cmd == "/help":
                 print_help()
             else:
-                print_info(f"Command '{cmd}' queued but agent was busy. Type it again.")
+                print_info(f"'{cmd}' queued while Forge was busy — type it again.")
+
 
 # ─────────────────────────────────────────────
 #  MAIN LOOP
 # ─────────────────────────────────────────────
 
-SYSTEM_PROMPT = """You are Forge, an expert AI agent built to assist software developers.
-You are precise, concise, and technical. You reason step by step.
-When planning tasks, you always break them into small, executable subtasks.
-You prefer clarity over verbosity."""
-
 def main():
     header()
     print_info("Type /help to see available commands.")
-    print_info("Type your message or a command below.")
+    print_info("Type your message or a /command below.")
     print()
 
-    ai = AI(system_prompt=SYSTEM_PROMPT)
+    ai = AI(system_prompt=SYSTEM)
     listener = InputListener()
 
     while True:
@@ -255,7 +310,6 @@ def main():
             if not user_input:
                 continue
 
-            # ── Commands ──
             if user_input == "/exit":
                 line("═")
                 print("  Goodbye.")
@@ -271,10 +325,12 @@ def main():
             elif user_input == "/task":
                 cmd_task(ai)
 
+            elif user_input == "/start":
+                cmd_start(ai)
+
             elif user_input == "/status":
                 cmd_status()
 
-            # ── Chat ──
             else:
                 listener.start()
                 response = ai.chat(user_input)
@@ -287,6 +343,7 @@ def main():
             line("─")
             print_info("Use /exit to quit cleanly.")
             print()
+
 
 if __name__ == "__main__":
     main()
