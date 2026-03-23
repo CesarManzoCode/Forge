@@ -28,3 +28,31 @@
   NameError: name 'Path' is not defined
 
 
+[2026-03-23 13:50:25] CRASH in main_loop
+  ImportError: cannot import name 'ReactLoop' from partially initialized module 'tasks.execution.react' (most likely due to a circular import) (/home/cesarmanzocode/Forge/tasks/execution/react.py)
+  Traceback (most recent call last):
+    File "/home/cesarmanzocode/Forge/interface/cli/cli.py", line 433, in main
+    cmd_start(ai, active_executor)
+    ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^
+    File "/home/cesarmanzocode/Forge/interface/cli/cli.py", line 194, in cmd_start
+    from tasks.execution.executor import Executor
+    File "/home/cesarmanzocode/Forge/tasks/execution/executor.py", line 19, in <module>
+    from tasks.execution.react import ReactLoop, ReactResult
+    File "/home/cesarmanzocode/Forge/tasks/execution/react.py", line 19, in <module>
+    from tasks.execution.react import ReactLoop, ReactResult
+  ImportError: cannot import name 'ReactLoop' from partially initialized module 'tasks.execution.react' (most likely due to a circular import) (/home/cesarmanzocode/Forge/tasks/execution/react.py)
+
+
+[2026-03-23 13:53:06] CRASH in main_loop
+  ImportError: cannot import name 'ReactLoop' from 'tasks.execution.react' (/home/cesarmanzocode/Forge/tasks/execution/react.py)
+  Traceback (most recent call last):
+    File "/home/cesarmanzocode/Forge/interface/cli/cli.py", line 433, in main
+    cmd_start(ai, active_executor)
+    ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^
+    File "/home/cesarmanzocode/Forge/interface/cli/cli.py", line 194, in cmd_start
+    from tasks.execution.executor import Executor
+    File "/home/cesarmanzocode/Forge/tasks/execution/executor.py", line 19, in <module>
+    from tasks.execution.react import ReactLoop, ReactResult
+  ImportError: cannot import name 'ReactLoop' from 'tasks.execution.react' (/home/cesarmanzocode/Forge/tasks/execution/react.py)
+
+

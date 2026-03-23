@@ -15,7 +15,10 @@ import json
 import os
 from datetime import datetime
 from pathlib import Path
+
 from llm.ai import AI
+# Importar con alias para evitar conflicto de nombre con la clase Executor
+from llm.prompts import Executor as ExecutorPrompts
 from tasks.execution.react import ReactLoop, ReactResult
 from tasks.execution.registry import registry, TOOLS
 from logs.logger import logger
@@ -30,9 +33,11 @@ EXECUTION_DIR       = Path("tasks/execution")
 CONTEXT_TASK_DIR    = Path("context/task")
 CONTEXT_PROJECT_DIR = Path("context/project")
 
-# System prompt minimo para la AI de ejecucion
-# No necesita personalidad — solo comportamiento preciso
-_EXEC_LANGUAGE = os.getenv("FORGE_LANGUAGE", "English")
+# ─────────────────────────────────────────────
+#  EXECUTION SYSTEM PROMPT
+# ─────────────────────────────────────────────
+
+_EXEC_LANGUAGE    = os.getenv("FORGE_LANGUAGE", "English")
 _EXECUTION_SYSTEM = f"""You are a code execution agent. You complete development subtasks using tools.
 Rules:
 - Use one tool at a time. Wait for the result before the next step.
@@ -42,12 +47,15 @@ Rules:
 - Stay focused on the current subtask only.
 - Always respond in {_EXEC_LANGUAGE}."""
 
-# Palabras clave para filtrar tools relevantes por subtask
+# ─────────────────────────────────────────────
+#  TOOL CATEGORY FILTER
+# ─────────────────────────────────────────────
+
 _TOOL_CATEGORIES = {
-    "file": ["read_file", "read_lines", "write_file", "append_file",
-             "patch_file", "create_dir", "delete_file", "delete_dir",
-             "move", "find_files", "grep", "tree"],
-    "code": ["run_file", "run_code", "run_tests", "install_deps", "check_env"],
+    "file":     ["read_file", "read_lines", "write_file", "append_file",
+                 "patch_file", "create_dir", "delete_file", "delete_dir",
+                 "move", "find_files", "grep", "tree"],
+    "code":     ["run_file", "run_code", "run_tests", "install_deps", "check_env"],
     "terminal": ["run_command", "git", "curl", "whitelist_info"],
     "internet": ["search_docs", "fetch_url", "fetch_github_raw", "docs_sources"],
     "system":   ["env_info", "running_ports", "disk_usage", "get_env_var", "list_env_vars"],
@@ -68,13 +76,9 @@ _CATEGORY_KEYWORDS = {
 
 
 def _filter_tools(subtask_description: str) -> str:
-    """
-    Retorna solo las tools relevantes para esta subtask.
-    Siempre incluye file tools como base — son las mas usadas.
-    Agrega otras categorias si la descripcion contiene palabras clave.
-    """
+    """Retorna solo las tools relevantes para esta subtask."""
     desc = subtask_description.lower()
-    active_categories = {"file"}  # siempre incluir file
+    active_categories = {"file"}  # siempre incluir file como base
 
     for category, keywords in _CATEGORY_KEYWORDS.items():
         if any(kw in desc for kw in keywords):
@@ -101,9 +105,9 @@ def _filter_tools(subtask_description: str) -> str:
 class Executor:
 
     def __init__(self, ai: AI):
-        self.ai = ai
-        self.react = ReactLoop(ai)
-        self._on_update = None
+        self.ai              = ai
+        self.react           = None  # se inicializa en run() con exec_ai limpia
+        self._on_update      = None
         self._stop_requested = False
 
     def request_stop(self):
@@ -115,7 +119,8 @@ class Executor:
     # ─────────────────────────────────────────
 
     def run(self, on_update=None):
-        self._on_update = on_update
+        self._on_update      = on_update
+        self._stop_requested = False  # reset flag al iniciar
 
         task = self._load_task()
         if not task:
@@ -128,15 +133,12 @@ class Executor:
         if not subtasks:
             raise ValueError("Task has no subtasks.")
 
-        # ── Crear AI limpia solo para ejecucion ──
-        # No contaminar con historial de chat, "hola", el plan, etc.
-        exec_ai = AI(system_prompt=_EXECUTION_SYSTEM)
+        # AI limpia para ejecucion — no contaminar con historial de chat
+        exec_ai    = AI(system_prompt=_EXECUTION_SYSTEM)
         self.react = ReactLoop(exec_ai)
 
-        # Inyectar contexto relevante una sola vez
+        # Inyectar contexto inicial una sola vez
         self._inject_initial_context(exec_ai)
-
-        # Tool list se inyecta por subtask segun relevancia — no aqui
 
         for subtask in subtasks:
             if subtask["status"] == "done":
@@ -146,7 +148,10 @@ class Executor:
 
             blocker = self._check_dependencies(subtask, subtasks)
             if blocker:
-                self._fail_task(task, subtask, f"Dependency not met: subtask {blocker} is not done.")
+                self._fail_task(
+                    task, subtask,
+                    f"Dependency not met: subtask {blocker} is not done."
+                )
                 return
 
             subtask["status"] = "in_progress"
@@ -179,7 +184,7 @@ class Executor:
                     "steps":   result.steps_taken,
                 })
 
-                # Reset AI entre subtasks
+                # Reset AI entre subtasks — descarta observaciones anteriores
                 exec_ai.reset()
 
                 # Verificar si el usuario pidio stop
@@ -191,7 +196,7 @@ class Executor:
                     })
                     return
 
-                # Re-inyectar contexto actualizado
+                # Re-inyectar contexto actualizado para la siguiente subtask
                 updated_ctx = self._read_context(CONTEXT_TASK_DIR)
                 if updated_ctx:
                     exec_ai.inject_context(updated_ctx, label="TASK CONTEXT")
@@ -220,7 +225,7 @@ class Executor:
         if memory_file.exists():
             try:
                 prefs = json.loads(memory_file.read_text(encoding="utf-8"))
-                flat = [
+                flat  = [
                     f"- [{cat}] {item}"
                     for cat, items in prefs.items()
                     for item in items
@@ -235,10 +240,7 @@ class Executor:
             ai.inject_context(project_ctx, label="PROJECT CONTEXT")
 
     def _read_context(self, directory: Path) -> str:
-        """
-        Lee todos los archivos de un directorio de contexto
-        y los combina en un solo string para el LLM.
-        """
+        """Lee todos los archivos de un directorio y los combina en un string."""
         if not directory.exists():
             return ""
 
@@ -255,41 +257,38 @@ class Executor:
         return "\n\n".join(parts)
 
     def _write_task_context(self, subtask: dict, result: ReactResult):
-        """
-        Guarda el resultado de una subtask en context/task/.
-        Las subtasks siguientes lo leeran como contexto.
-        """
+        """Guarda el resultado de una subtask en context/task/."""
         CONTEXT_TASK_DIR.mkdir(parents=True, exist_ok=True)
 
         filename = f"subtask_{subtask['id']:02d}_result.md"
-        content = (
+        content  = (
             f"# Subtask {subtask['id']}: {subtask['description']}\n\n"
-            f"**Status:** done\n"
+            f"**Status:** done  \n"
             f"**Steps taken:** {result.steps_taken}\n\n"
             f"## Result\n{result.result}\n\n"
         )
 
-        # Agregar observaciones relevantes de los pasos
         observations = [
             s for s in result.steps
             if s.observation and len(s.observation) < 2000
         ]
         if observations:
             content += "## Key observations\n"
-            for step in observations[-3:]:  # solo los ultimos 3 para no saturar
-                content += f"- **{step.tool}**: {step.observation[:300]}...\n" \
-                    if len(step.observation) > 300 \
-                    else f"- **{step.tool}**: {step.observation}\n"
+            for step in observations[-3:]:
+                obs = step.observation
+                content += (
+                    f"- **{step.tool}**: {obs[:300]}...\n"
+                    if len(obs) > 300
+                    else f"- **{step.tool}**: {obs}\n"
+                )
 
         (CONTEXT_TASK_DIR / filename).write_text(content, encoding="utf-8")
-
-        # Registrar en subtask cuales archivos escribio
         subtask["context_written"].append(f"context/task/{filename}")
 
     def _promote_context(self):
         """
-        Al completar la tarea, mueve el resumen de context/task/
-        a context/project/ para que persista en futuras tareas.
+        Al completar la tarea, promueve el resumen a context/project/
+        para que persista en futuras tareas de la sesion.
         """
         task = self._load_task()
         if not task:
@@ -297,7 +296,8 @@ class Executor:
 
         CONTEXT_PROJECT_DIR.mkdir(parents=True, exist_ok=True)
 
-        summary_file = CONTEXT_PROJECT_DIR / f"task_{task.get('title', 'task').replace(' ', '_')[:40]}.md"
+        safe_title   = task.get("title", "task").replace(" ", "_")[:40]
+        summary_file = CONTEXT_PROJECT_DIR / f"task_{safe_title}.md"
 
         lines = [
             f"# Completed task: {task.get('title', 'Untitled')}\n",
@@ -305,11 +305,12 @@ class Executor:
             "## Subtasks completed\n",
         ]
         for st in task.get("subtasks", []):
-            lines.append(f"- [{st['id']}] {st['description']}: {st.get('result', '')[:120]}\n")
+            result_preview = str(st.get("result", ""))[:120]
+            lines.append(f"- [{st['id']}] {st['description']}: {result_preview}\n")
 
         summary_file.write_text("".join(lines), encoding="utf-8")
 
-        # Limpiar context/task/ — ya no es necesario
+        # Limpiar context/task/ — ya fue promovido
         if CONTEXT_TASK_DIR.exists():
             for f in CONTEXT_TASK_DIR.iterdir():
                 if f.is_file():
@@ -322,7 +323,11 @@ class Executor:
     def _load_task(self) -> dict | None:
         if not TASK_FILE.exists():
             return None
-        return json.loads(TASK_FILE.read_text(encoding="utf-8"))
+        try:
+            content = TASK_FILE.read_text(encoding="utf-8").strip()
+            return json.loads(content) if content else None
+        except json.JSONDecodeError:
+            return None
 
     def _save_task(self, task: dict):
         TASK_FILE.parent.mkdir(parents=True, exist_ok=True)
@@ -339,10 +344,7 @@ class Executor:
         self._emit("task_failed", {"subtask": subtask, "reason": reason})
 
     def _check_dependencies(self, subtask: dict, all_subtasks: list) -> int | None:
-        """
-        Verifica que todas las dependencias de una subtask esten completadas.
-        Retorna el id de la primera dependencia no completada, o None si todo ok.
-        """
+        """Retorna el id de la primera dependencia no completada, o None."""
         done_ids = {
             st["id"] for st in all_subtasks
             if st["status"] == "done"
@@ -361,4 +363,4 @@ class Executor:
             try:
                 self._on_update(event, data)
             except Exception:
-                pass  # el callback no debe romper la ejecucion
+                pass
