@@ -272,35 +272,44 @@ def cmd_start(ai: AI, active_executor: dict = None):
             active_executor["ref"] = None
 
 
-def cmd_status():
+def cmd_status(ai: AI = None):
     print_section("EXECUTION STATUS")
     data = load_task_file()
 
     if not data:
         print_info("No active task found.")
-        return
+    else:
+        status = data.get("status", "unknown")
+        status_labels = {
+            "planned":  "○  Planned — type /start to execute",
+            "running":  "▶  Running",
+            "done":     "✓  Completed",
+            "paused":   "‖  Paused",
+            "error":    "✗  Error",
+        }
 
-    status = data.get("status", "unknown")
-    status_labels = {
-        "planned":  "○  Planned — type /start to execute",
-        "running":  "▶  Running",
-        "done":     "✓  Completed",
-        "paused":   "‖  Paused",
-        "error":    "✗  Error",
-    }
+        print(f"  Task    : {data.get('title', 'Untitled')}")
+        print(f"  Status  : {status_labels.get(status, status)}")
+        print()
 
-    print(f"  Task    : {data.get('title', 'Untitled')}")
-    print(f"  Status  : {status_labels.get(status, status)}")
-    print()
+        icons = {"done": "✓", "in_progress": "▶", "pending": "○", "error": "✗"}
+        for st in data.get("subtasks", []):
+            icon = icons.get(st["status"], "?")
+            result_preview = ""
+            if st.get("result"):
+                result_preview = f"\n         └─ {str(st['result'])[:56]}..."
+            print(f"  {icon}  [{st['id']:>2}]  {st['description']}{result_preview}")
+        print()
 
-    icons = {"done": "✓", "in_progress": "▶", "pending": "○", "error": "✗"}
-    for st in data.get("subtasks", []):
-        icon = icons.get(st["status"], "?")
-        result_preview = ""
-        if st.get("result"):
-            result_preview = f"\n         └─ {str(st['result'])[:56]}..."
-        print(f"  {icon}  [{st['id']:>2}]  {st['description']}{result_preview}")
-    print()
+    # Context window usage
+    if ai:
+        usage = ai.context_usage()
+        bar_width = 30
+        filled = int(bar_width * usage["percent"] / 100)
+        bar = "█" * filled + "░" * (bar_width - filled)
+        print(f"  Context : [{bar}] {usage['percent']}%")
+        print(f"            {usage['tokens']:,} / {usage['limit']:,} tokens")
+        print()
 
 
 def cmd_reset(ai: AI):
@@ -372,7 +381,7 @@ class InputListener:
 
         for cmd in cmds:
             if cmd == "/status":
-                cmd_status()
+                cmd_status(ai)
             elif cmd == "/reset":
                 cmd_reset(ai)
             elif cmd == "/help":
@@ -424,7 +433,7 @@ def main():
                 cmd_start(ai, active_executor)
 
             elif user_input == "/status":
-                cmd_status()
+                cmd_status(ai)
 
             elif user_input == "/stop":
                 if active_executor["ref"]:
