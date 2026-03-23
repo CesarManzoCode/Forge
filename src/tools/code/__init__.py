@@ -32,11 +32,17 @@ def _run(
     cmd: list[str],
     cwd: str = None,
     timeout: int = None,
+    env_extra: dict = None,
 ) -> dict:
     """
     Ejecuta un comando y retorna stdout, stderr y exit code.
     Interno — las funciones publicas deciden que retornarle al agente.
     """
+    import os as _os
+    env = _os.environ.copy()
+    if env_extra:
+        env.update(env_extra)
+
     try:
         result = subprocess.run(
             cmd,
@@ -44,26 +50,27 @@ def _run(
             text=True,
             timeout=timeout or _get_timeout(),
             cwd=cwd or str(_project_root()),
+            env=env,
         )
         return {
-            "stdout": result.stdout.strip(),
-            "stderr": result.stderr.strip(),
+            "stdout":   result.stdout.strip(),
+            "stderr":   result.stderr.strip(),
             "exit_code": result.returncode,
-            "success": result.returncode == 0,
+            "success":  result.returncode == 0,
         }
     except subprocess.TimeoutExpired:
         return {
-            "stdout": "",
-            "stderr": f"Timed out after {timeout or _get_timeout()}s.",
+            "stdout":   "",
+            "stderr":   f"Timed out after {timeout or _get_timeout()}s.",
             "exit_code": -1,
-            "success": False,
+            "success":  False,
         }
     except FileNotFoundError as e:
         return {
-            "stdout": "",
-            "stderr": f"Command not found: {e}",
+            "stdout":   "",
+            "stderr":   f"Command not found: {e}",
             "exit_code": -1,
-            "success": False,
+            "success":  False,
         }
 
 
@@ -165,6 +172,10 @@ def run_tests(
     """
     Corre pytest en el proyecto.
 
+    Maneja automaticamente el PYTHONPATH para tests en subdirectorios —
+    agrega el directorio padre del test y la raiz del proyecto al path
+    para que los imports funcionen sin necesidad de conftest.py manual.
+
     Args:
         path:  Archivo o directorio de tests (default: tests/)
                Puede ser un archivo especifico: "tests/test_auth.py"
@@ -173,24 +184,42 @@ def run_tests(
                Si no se pasan, usa ["--tb=short"] por default
 
     Retorna el output completo de pytest.
-    El agente recibe tanto el resumen como los errores detallados.
     """
-    # Validar el path si no es el default
+    project_root = _project_root()
+
+    # Resolver el path del test
     if path != "tests":
         guard_path(path, operation="run_tests")
+
+    # Construir PYTHONPATH incluyendo:
+    # 1. La raiz del proyecto
+    # 2. El directorio que contiene el archivo de test (para imports relativos)
+    # 3. El directorio padre del test (para imports del modulo bajo test)
+    python_paths = {str(project_root)}
+
+    resolved_test_path = (project_root / path).resolve()
+    if resolved_test_path.is_file():
+        # Agregar el directorio del archivo de test y su padre
+        python_paths.add(str(resolved_test_path.parent))
+        python_paths.add(str(resolved_test_path.parent.parent))
+    elif resolved_test_path.is_dir():
+        # Agregar el directorio de tests y su padre
+        python_paths.add(str(resolved_test_path))
+        python_paths.add(str(resolved_test_path.parent))
+
+    env_extra = {
+        "PYTHONPATH": ":".join(python_paths)
+    }
 
     default_flags = ["--tb=short", "--no-header", "-q"]
     cmd = ["python", "-m", "pytest", path] + (flags or default_flags)
 
-    result = _run(cmd, cwd=str(_project_root()))
+    result = _run(cmd, cwd=str(project_root), env_extra=env_extra)
 
-    # pytest retorna exit code 0 (ok), 1 (tests fallaron), 2+ (error)
-    # Para el agente, tanto ok como tests fallados son informacion util
-    # Solo lanzamos error si pytest ni siquiera pudo correr (exit >= 2)
+    # pytest retorna exit code 0 (ok), 1 (tests fallaron), 2+ (error de pytest)
     if result["exit_code"] >= 2:
         raise RuntimeError(_format_error(result, "pytest"))
 
-    # Combinar stdout y stderr para dar contexto completo al agente
     output_parts = []
     if result["stdout"]:
         output_parts.append(result["stdout"])

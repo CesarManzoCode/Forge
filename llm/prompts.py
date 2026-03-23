@@ -62,6 +62,10 @@ Rules:
 - Do NOT combine operations that are logically separate executions or verifications.
   BAD:  1. Run file1.py, file2.py, file3.py (these should be separate to allow pausing)
   GOOD: 1. Run file1.py  2. Run file2.py  3. Run file3.py
+- For running tests, always use the run_tests tool with the full relative path from project root.
+  BAD:  1. Navigate to tests/  2. Run python test_file.py
+  GOOD: 1. Run tests using run_tests with path="sandbox/tests/test_file.py"
+- Do not add a separate subtask just to "report" or "extract" results — the tool output IS the result.
 - Each subtask must be concrete and independently executable by an AI agent.
 - No subtask should require human decisions mid-execution.
 - Maximum 8 subtasks. If the task genuinely needs more, it is too large — say so.
