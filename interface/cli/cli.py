@@ -108,8 +108,13 @@ EXECUTION_DIR = "tasks/execution"
 def load_task_file() -> dict | None:
     if not os.path.exists(TASK_FILE):
         return None
-    with open(TASK_FILE, "r") as f:
-        return json.load(f)
+    try:
+        content = open(TASK_FILE).read().strip()
+        if not content:
+            return None
+        return json.loads(content)
+    except json.JSONDecodeError:
+        return None
 
 
 def save_task_file(data: dict):
