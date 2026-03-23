@@ -68,75 +68,55 @@ class ReactLoop:
         self.ai = ai
 
     def run(self, subtask: dict, project_context: str, task_context: str) -> ReactResult:
-        """
-        Ejecuta el loop ReAct para una subtask.
-
-        Args:
-            subtask:         Dict con id, description, depends_on, etc.
-            project_context: Contenido de context/project/ como string
-            task_context:    Contenido de context/task/ como string
-
-        Retorna ReactResult con success, result y el historial de pasos.
-        """
         steps: list[Step] = []
 
-        # Construir el prompt inicial para esta subtask
         initial_prompt = Executor.run_subtask(
             subtask=subtask,
             project_context=project_context,
             task_context=task_context,
         )
 
-        # El primer mensaje arranca el loop
         raw = self.ai.chat(initial_prompt)
 
         for step_num in range(MAX_STEPS):
-            # Parsear la respuesta del LLM
             parsed, parse_error = self._parse_response(raw)
 
             if parse_error:
-                # El LLM no respondio JSON valido — un intento de correccion
                 raw = self.ai.chat(
-                    f"Your response was not valid JSON. Error: {parse_error}\n"
-                    f"Respond ONLY with a valid JSON object. No explanation, no markdown."
+                    f"Invalid JSON: {parse_error}. "
+                    f"Respond ONLY with a JSON object."
                 )
                 parsed, parse_error = self._parse_response(raw)
                 if parse_error:
-                    # Segundo fallo — abortar esta subtask
                     return ReactResult(
                         success=False,
-                        result=f"Agent produced invalid JSON twice in a row: {parse_error}",
+                        result=f"Agent produced invalid JSON twice: {parse_error}",
                         steps=steps,
                         steps_taken=step_num + 1,
                     )
 
-            thought = parsed.get("thought", "")
+            thought   = parsed.get("thought", "")
 
-            # ── Subtask completada ──
             if parsed.get("done"):
-                result_summary = parsed.get("result", "Subtask completed.")
                 steps.append(Step(thought=thought))
                 return ReactResult(
                     success=True,
-                    result=result_summary,
+                    result=parsed.get("result", "Subtask completed."),
                     steps=steps,
                     steps_taken=step_num + 1,
                 )
 
-            # ── Paso intermedio: ejecutar tool ──
             tool_name = parsed.get("tool")
             tool_args = parsed.get("args", {})
 
             if not tool_name:
-                # El LLM no dijo done ni propuso tool — forzar claridad
                 raw = self.ai.chat(
-                    "You must either propose a tool to use, or declare the subtask done.\n"
-                    "Respond with JSON containing 'tool' and 'args', "
-                    "or 'done: true' and 'result'."
+                    "Propose a tool or declare done. "
+                    "JSON: {\"tool\": \"...\", \"args\": {...}} "
+                    "or {\"done\": true, \"result\": \"...\"}"
                 )
                 continue
 
-            # Ejecutar la tool via registry
             observation, error = self._execute_tool(tool_name, tool_args)
 
             step = Step(
@@ -148,7 +128,6 @@ class ReactLoop:
             )
             steps.append(step)
 
-            # Si la tool fallo — parar y reportar
             if error:
                 return ReactResult(
                     success=False,
@@ -157,16 +136,14 @@ class ReactLoop:
                     steps_taken=step_num + 1,
                 )
 
-            # Continuar el loop — pasar la observacion al LLM
-            raw = self.ai.chat(self._observation_prompt(tool_name, observation))
+            # Observation corta — sin repetir formato JSON despues del primer paso
+            raw = self.ai.chat(self._observation_prompt(tool_name, observation, step_num))
 
-        # Se agotaron los pasos maximos
         return ReactResult(
             success=False,
             result=(
                 f"Subtask '{subtask['description']}' reached the step limit "
-                f"({MAX_STEPS} steps) without completing. "
-                f"The task may be too complex — consider breaking it into smaller subtasks."
+                f"({MAX_STEPS} steps). Consider breaking it into smaller subtasks."
             ),
             steps=steps,
             steps_taken=MAX_STEPS,
@@ -210,15 +187,24 @@ class ReactLoop:
         except Exception as e:
             return None, f"Unexpected error in '{tool_name}': {type(e).__name__}: {e}"
 
-    def _observation_prompt(self, tool_name: str, observation: str) -> str:
-        """Formatea el resultado de una tool para devolverlo al LLM."""
-        return (
-            f"[OBSERVATION from {tool_name}]\n"
-            f"{observation}\n\n"
-            f"Based on this result, what is your next step?\n"
-            f"Respond with JSON: {{\"thought\": \"...\", \"tool\": \"...\", \"args\": {{...}}}}\n"
-            f"Or if the subtask is complete: {{\"thought\": \"...\", \"done\": true, \"result\": \"...\"}}"
-        )
+    def _observation_prompt(self, tool_name: str, observation: str, step_num: int) -> str:
+        """
+        Primer paso: incluye recordatorio del formato.
+        Pasos siguientes: solo el resultado — el LLM ya sabe el formato.
+        """
+        # Truncar observaciones muy largas para no inflar el historial
+        max_obs = 2000
+        if len(observation) > max_obs:
+            observation = observation[:max_obs] + f"\n[...truncated at {max_obs} chars]"
+
+        if step_num == 0:
+            return (
+                f"[{tool_name}] {observation}\n\n"
+                f"Next step JSON: {{\"thought\":\"...\",\"tool\":\"...\",\"args\":{{...}}}} "
+                f"or {{\"thought\":\"...\",\"done\":true,\"result\":\"...\"}}"
+            )
+        # Pasos siguientes — solo el resultado
+        return f"[{tool_name}] {observation}"
 
     def _format_failure(self, subtask: dict, step: Step) -> str:
         """Formatea el reporte de fallo para el usuario."""

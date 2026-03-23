@@ -41,31 +41,29 @@ class Planner:
 
     @staticmethod
     def generate(task_description: str) -> str:
-        return f"""You are acting as a senior software engineer and task planner.
+        return f"""You are a senior software engineer acting as a task planner.
+Break down the following task into the MINIMUM number of chronological subtasks needed.
 
-Your job is to analyze the following task and break it down into small, 
-chronological, and executable subtasks for an AI agent.
+Rules:
+- Combine trivial sequential operations into one subtask.
+  BAD:  1. Create file  2. Write content to file  (these are ONE write_file call)
+  GOOD: 1. Create file with content
+- Each subtask must be concrete and independently executable by an AI agent.
+- No subtask should require human decisions mid-execution.
+- Maximum 8 subtasks. If the task genuinely needs more, it is too large — say so.
+- Be conservative. Fewer subtasks = fewer tokens = faster execution.
 
-Rules for planning:
-- Each subtask must be concrete and achievable on its own
-- No subtask should be vague (bad: "set up the project", good: "create pyproject.toml with these dependencies: ...")
-- If a subtask depends on a previous one, declare it in depends_on
-- Do not include subtasks that require human decisions mid-execution
-- Maximum 10 subtasks. If the task needs more, it should be split into multiple tasks
-- Be conservative — only include what is strictly necessary
-
-Respond ONLY with a valid JSON object. No explanation, no markdown, no extra text.
-Exact format required:
+Respond ONLY with valid JSON. No explanation, no markdown, no extra text:
 
 {{
-  "title": "short title, max 6 words",
+  "title": "max 6 words",
   "description": "original task restated clearly",
   "estimated_subtasks": <number>,
   "risk_level": "low | medium | high",
   "subtasks": [
     {{
       "id": 1,
-      "description": "concrete action to take",
+      "description": "concrete action — include all details needed to execute it",
       "status": "pending",
       "depends_on": [],
       "result": null,
@@ -74,7 +72,7 @@ Exact format required:
   ]
 }}
 
-Task to plan:
+Task:
 {task_description}"""
 
     @staticmethod
@@ -112,34 +110,17 @@ class Executor:
 
     @staticmethod
     def run_subtask(subtask: dict, project_context: str, task_context: str) -> str:
-        return f"""You are executing a specific subtask as part of a larger development task.
-You have access to a set of tools. Use them one at a time.
+        ctx_block = ""
+        if project_context:
+            ctx_block += f"Project:\n{project_context}\n\n"
+        if task_context:
+            ctx_block += f"Previous results:\n{task_context}\n\n"
 
-Project context:
-{project_context if project_context else "No project context yet."}
-
-Current task context (results from previous subtasks):
-{task_context if task_context else "No previous subtasks completed yet."}
-
-Your current subtask (id: {subtask['id']}):
-{subtask['description']}
-
-Instructions:
-- Think step by step before acting.
-- Use one tool at a time and wait for the result before deciding the next step.
-- Stay focused — only do what this subtask requires.
-- If you encounter a blocker, stop immediately and report it clearly.
-- Do not modify files outside the scope of this subtask.
-
-Response format — for each step respond with ONLY valid JSON, one of:
-
-If you need to use a tool:
-{{"thought": "your reasoning", "tool": "tool_name", "args": {{"arg1": "value1"}}}}
-
-When the subtask is complete:
-{{"thought": "your reasoning", "done": true, "result": "concise summary of what was accomplished"}}
-
-Begin."""
+        return (
+            f"{ctx_block}"
+            f"Subtask {subtask['id']}: {subtask['description']}\n\n"
+            f"Use tools to complete it. Respond with JSON only."
+        )
 
     @staticmethod
     def report_done(subtask_id: int, result: str) -> str:

@@ -24,10 +24,68 @@ from tasks.execution.registry import registry
 #  PATHS
 # ─────────────────────────────────────────────
 
-TASK_FILE         = Path("tasks/project/task.json")
-EXECUTION_DIR     = Path("tasks/execution")
-CONTEXT_TASK_DIR  = Path("context/task")
+TASK_FILE           = Path("tasks/project/task.json")
+EXECUTION_DIR       = Path("tasks/execution")
+CONTEXT_TASK_DIR    = Path("context/task")
 CONTEXT_PROJECT_DIR = Path("context/project")
+
+# System prompt minimo para la AI de ejecucion
+# No necesita personalidad — solo comportamiento preciso
+_EXECUTION_SYSTEM = """You are a code execution agent. You complete development subtasks using tools.
+Rules:
+- Use one tool at a time. Wait for the result before the next step.
+- Respond ONLY with valid JSON. No prose, no markdown, no explanation outside JSON.
+- When done: {"thought": "...", "done": true, "result": "concise summary"}
+- When using a tool: {"thought": "...", "tool": "tool_name", "args": {...}}
+- Stay focused on the current subtask only."""
+
+# Palabras clave para filtrar tools relevantes por subtask
+_TOOL_CATEGORIES = {
+    "file": ["read_file", "read_lines", "write_file", "append_file",
+             "patch_file", "create_dir", "delete_file", "delete_dir",
+             "move", "find_files", "grep", "tree"],
+    "code": ["run_file", "run_code", "run_tests", "install_deps", "check_env"],
+    "terminal": ["run_command", "git", "curl", "whitelist_info"],
+    "internet": ["search_docs", "fetch_url", "fetch_github_raw", "docs_sources"],
+}
+
+_CATEGORY_KEYWORDS = {
+    "file":     ["file", "read", "write", "create", "delete", "move",
+                 "directory", "folder", "find", "search", "content", "path"],
+    "code":     ["run", "execute", "test", "install", "python", "script",
+                 "dependencies", "pytest", "pip", "code"],
+    "terminal": ["git", "command", "terminal", "shell", "commit", "push",
+                 "pull", "branch", "curl", "http", "request"],
+    "internet": ["docs", "documentation", "search", "fetch", "github",
+                 "api", "url", "web", "library"],
+}
+
+
+def _filter_tools(subtask_description: str) -> str:
+    """
+    Retorna solo las tools relevantes para esta subtask.
+    Siempre incluye file tools como base — son las mas usadas.
+    Agrega otras categorias si la descripcion contiene palabras clave.
+    """
+    desc = subtask_description.lower()
+    active_categories = {"file"}  # siempre incluir file
+
+    for category, keywords in _CATEGORY_KEYWORDS.items():
+        if any(kw in desc for kw in keywords):
+            active_categories.add(category)
+
+    relevant_tools = []
+    for category in active_categories:
+        relevant_tools.extend(_TOOL_CATEGORIES[category])
+
+    lines = []
+    for name, tool in registry.TOOLS.items():
+        if name not in relevant_tools:
+            continue
+        args_str = ", ".join(f"{k}: {v}" for k, v in tool["args"].items())
+        lines.append(f"- {name}({args_str}): {tool['description']}")
+
+    return "\n".join(lines)
 
 
 # ─────────────────────────────────────────────
@@ -46,22 +104,6 @@ class Executor:
     # ─────────────────────────────────────────
 
     def run(self, on_update=None):
-        """
-        Ejecuta todas las subtasks pendientes en orden cronologico.
-
-        Args:
-            on_update: Callback opcional que recibe (event, data) en
-                       cada cambio de estado. Usado por el CLI para
-                       mostrar progreso en tiempo real.
-
-                       Eventos posibles:
-                         "subtask_start"   — data: subtask dict
-                         "step"            — data: Step object
-                         "subtask_done"    — data: {subtask, result}
-                         "subtask_failed"  — data: {subtask, reason}
-                         "task_done"       — data: task dict
-                         "task_failed"     — data: {subtask, reason}
-        """
         self._on_update = on_update
 
         task = self._load_task()
@@ -75,39 +117,38 @@ class Executor:
         if not subtasks:
             raise ValueError("Task has no subtasks.")
 
-        # Inyectar contexto del proyecto y preferencias del usuario al LLM
-        self._inject_initial_context()
+        # ── Crear AI limpia solo para ejecucion ──
+        # No contaminar con historial de chat, "hola", el plan, etc.
+        exec_ai = AI(system_prompt=_EXECUTION_SYSTEM)
+        self.react = ReactLoop(exec_ai)
 
-        # Inyectar el tool list al LLM una sola vez al inicio
-        self.ai.inject_context(
-            content=registry.tool_list(),
-            label="AVAILABLE TOOLS"
-        )
+        # Inyectar contexto relevante una sola vez
+        self._inject_initial_context(exec_ai)
 
-        # Ejecutar subtasks en orden
+        # Tool list se inyecta por subtask segun relevancia — no aqui
+
         for subtask in subtasks:
             if subtask["status"] == "done":
-                continue  # ya completada en sesion anterior
-
+                continue
             if subtask["status"] == "error":
-                break     # habia fallado antes — no continuar
+                break
 
-            # Verificar dependencias
             blocker = self._check_dependencies(subtask, subtasks)
             if blocker:
                 self._fail_task(task, subtask, f"Dependency not met: subtask {blocker} is not done.")
                 return
 
-            # Marcar como in_progress
             subtask["status"] = "in_progress"
             self._save_task(task)
             self._emit("subtask_start", subtask)
 
-            # Cargar contexto actual
             project_ctx = self._read_context(CONTEXT_PROJECT_DIR)
-            task_ctx = self._read_context(CONTEXT_TASK_DIR)
+            task_ctx    = self._read_context(CONTEXT_TASK_DIR)
 
-            # Ejecutar el loop ReAct
+            # Inyectar solo las tools relevantes para esta subtask
+            tools_for_subtask = _filter_tools(subtask["description"])
+            exec_ai.inject_context(tools_for_subtask, label="AVAILABLE TOOLS")
+
             result: ReactResult = self.react.run(
                 subtask=subtask,
                 project_context=project_ctx,
@@ -115,73 +156,63 @@ class Executor:
             )
 
             if result.success:
-                # Actualizar subtask
-                subtask["status"] = "done"
-                subtask["result"] = result.result
+                subtask["status"]       = "done"
+                subtask["result"]       = result.result
                 subtask["completed_at"] = datetime.now().isoformat()
-                subtask["steps_taken"] = result.steps_taken
+                subtask["steps_taken"]  = result.steps_taken
                 self._save_task(task)
-
-                # Guardar resultado en context/task/ para subtasks siguientes
                 self._write_task_context(subtask, result)
-
                 self._emit("subtask_done", {
                     "subtask": subtask,
-                    "result": result.result,
-                    "steps": result.steps_taken,
+                    "result":  result.result,
+                    "steps":   result.steps_taken,
                 })
 
+                # Reset AI entre subtasks — conserva system prompt,
+                # descarta observaciones de la subtask anterior
+                exec_ai.reset()
+
+                # Re-inyectar contexto actualizado para la siguiente subtask
+                updated_ctx = self._read_context(CONTEXT_TASK_DIR)
+                if updated_ctx:
+                    exec_ai.inject_context(updated_ctx, label="TASK CONTEXT")
+
             else:
-                # Fallo — parar todo
-                subtask["status"] = "error"
-                subtask["error"] = result.result
+                subtask["status"]    = "error"
+                subtask["error"]     = result.result
                 subtask["failed_at"] = datetime.now().isoformat()
                 self._fail_task(task, subtask, result.result)
                 return
 
-        # Todas las subtasks completadas
-        task["status"] = "done"
+        task["status"]       = "done"
         task["completed_at"] = datetime.now().isoformat()
         self._save_task(task)
-
-        # Promover contexto de task a project
         self._promote_context()
-
         self._emit("task_done", task)
 
     # ─────────────────────────────────────────
     #  CONTEXT MANAGEMENT
     # ─────────────────────────────────────────
 
-    def _inject_initial_context(self):
-        """
-        Inyecta al LLM el contexto del proyecto y las preferencias
-        del usuario antes de empezar a ejecutar subtasks.
-        """
-        # Preferencias del usuario desde memory/
+    def _inject_initial_context(self, ai: AI):
+        """Inyecta preferencias del usuario y contexto del proyecto."""
         memory_file = Path("memory/user.json")
         if memory_file.exists():
             try:
                 prefs = json.loads(memory_file.read_text(encoding="utf-8"))
-                flat = []
-                for category, items in prefs.items():
-                    for item in items:
-                        flat.append(f"- [{category}] {item}")
+                flat = [
+                    f"- [{cat}] {item}"
+                    for cat, items in prefs.items()
+                    for item in items
+                ]
                 if flat:
-                    self.ai.inject_context(
-                        content="\n".join(flat),
-                        label="USER PREFERENCES"
-                    )
+                    ai.inject_context("\n".join(flat), label="USER PREFERENCES")
             except Exception:
-                pass  # preferencias malformadas — ignorar silenciosamente
+                pass
 
-        # Contexto persistente del proyecto
         project_ctx = self._read_context(CONTEXT_PROJECT_DIR)
         if project_ctx:
-            self.ai.inject_context(
-                content=project_ctx,
-                label="PROJECT CONTEXT"
-            )
+            ai.inject_context(project_ctx, label="PROJECT CONTEXT")
 
     def _read_context(self, directory: Path) -> str:
         """
