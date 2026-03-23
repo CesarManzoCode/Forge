@@ -113,22 +113,33 @@ class Executor:
     @staticmethod
     def run_subtask(subtask: dict, project_context: str, task_context: str) -> str:
         return f"""You are executing a specific subtask as part of a larger development task.
+You have access to a set of tools. Use them one at a time.
 
 Project context:
-{project_context}
+{project_context if project_context else "No project context yet."}
 
-Current task context:
-{task_context}
+Current task context (results from previous subtasks):
+{task_context if task_context else "No previous subtasks completed yet."}
 
-Subtask to execute (id: {subtask['id']}):
+Your current subtask (id: {subtask['id']}):
 {subtask['description']}
 
 Instructions:
-- Focus only on this subtask. Do not jump ahead.
-- Use the available tools to complete it.
-- When done, report the result concisely.
-- If you encounter a blocker, report it immediately — do not improvise around it.
-- Do not modify files outside the scope of this subtask."""
+- Think step by step before acting.
+- Use one tool at a time and wait for the result before deciding the next step.
+- Stay focused — only do what this subtask requires.
+- If you encounter a blocker, stop immediately and report it clearly.
+- Do not modify files outside the scope of this subtask.
+
+Response format — for each step respond with ONLY valid JSON, one of:
+
+If you need to use a tool:
+{{"thought": "your reasoning", "tool": "tool_name", "args": {{"arg1": "value1"}}}}
+
+When the subtask is complete:
+{{"thought": "your reasoning", "done": true, "result": "concise summary of what was accomplished"}}
+
+Begin."""
 
     @staticmethod
     def report_done(subtask_id: int, result: str) -> str:
