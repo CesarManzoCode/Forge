@@ -63,14 +63,11 @@ def print_help():
     print("─" * WIDTH)
     print("  /task     Describe a new task for Forge to plan")
     print("  /start    Execute the current plan")
+    print("  /stop     Pause execution after current subtask")
     print("  /status   Show subtask execution progress")
     print("  /reset    Clear conversation history")
     print("  /help     Show this menu")
     print("  /exit     Exit Forge")
-    print("─" * WIDTH)
-    print("  While agent is running:")
-    print("  /status   Check progress at any time")
-    print("  /stop     Interrupt execution  (coming soon)")
     print("═" * WIDTH)
     print()
 
@@ -179,7 +176,7 @@ def cmd_task(ai: AI):
             f.write(response)
 
 
-def cmd_start(ai: AI):
+def cmd_start(ai: AI, active_executor: dict = None):
     from tasks.execution.executor import Executor
 
     data = load_task_file()
@@ -229,13 +226,35 @@ def cmd_start(ai: AI):
         elif event == "task_failed":
             line("─")
             print_error("Task stopped — requires your input to continue.")
+            print()
+            if payload.get("reason"):
+                print_agent(payload["reason"])
+
+        elif event == "task_stopped":
+            line("─")
+            print_info(payload.get("message", "Execution paused."))
             line("─")
 
     try:
         executor = Executor(ai)
+        if active_executor is not None:
+            active_executor["ref"] = executor
         executor.run(on_update=on_update)
+    except FileNotFoundError as e:
+        print_error(str(e))
     except Exception as e:
-        print_error(f"Execution engine error: {e}")
+        print_error(f"Execution engine crashed: {type(e).__name__}: {e}")
+        if os.getenv("DEV_MODE", "false").lower() == "true":
+            import traceback as tb
+            print()
+            print("  ── traceback ──────────────────────────────────────")
+            for ln in tb.format_exc().splitlines():
+                print(f"  {ln}")
+            print("  ───────────────────────────────────────────────────")
+            print()
+    finally:
+        if active_executor is not None:
+            active_executor["ref"] = None
 
 
 def cmd_status():
@@ -334,6 +353,7 @@ def main():
 
     ai = AI(system_prompt=SYSTEM)
     listener = InputListener()
+    active_executor = {"ref": None}  # referencia mutable al executor activo
 
     while True:
         try:
@@ -360,10 +380,17 @@ def main():
                 cmd_task(ai)
 
             elif user_input == "/start":
-                cmd_start(ai)
+                cmd_start(ai, active_executor)
 
             elif user_input == "/status":
                 cmd_status()
+
+            elif user_input == "/stop":
+                if active_executor["ref"]:
+                    active_executor["ref"].request_stop()
+                    print_info("Stop requested — Forge will pause after the current subtask.")
+                else:
+                    print_info("No task is currently running.")
 
             else:
                 print_info("Forge is thinking...")
@@ -378,6 +405,14 @@ def main():
             line("─")
             print_info("Use /exit to quit cleanly.")
             print()
+        except Exception as e:
+            print_error(f"Unexpected error: {type(e).__name__}: {e}")
+            if os.getenv("DEV_MODE", "false").lower() == "true":
+                import traceback
+                print()
+                for ln in traceback.format_exc().splitlines():
+                    print(f"  {ln}")
+                print()
 
 
 if __name__ == "__main__":

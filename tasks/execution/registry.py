@@ -24,6 +24,9 @@ from src.tools.terminal import (
 from src.tools.internet import (
     search_docs, fetch_url, fetch_github_raw, docs_sources,
 )
+from src.tools.system import (
+    env_info, running_ports, disk_usage, get_env_var, list_env_vars,
+)
 from src.security import SecurityError
 
 
@@ -149,6 +152,33 @@ TOOLS: dict[str, dict] = {
         "fn":          whitelist_info,
         "description": "Returns the list of allowed terminal commands.",
         "args":        {},
+    },
+
+    # ── SYSTEM ──
+    "env_info": {
+        "fn":          env_info,
+        "description": "Get environment snapshot: OS, runtimes, dev tools, venv status.",
+        "args":        {},
+    },
+    "running_ports": {
+        "fn":          running_ports,
+        "description": "Check if specific ports are in use. Default checks common dev ports.",
+        "args":        {"ports": "list?"},
+    },
+    "disk_usage": {
+        "fn":          disk_usage,
+        "description": "Get disk usage of the project directory in MB.",
+        "args":        {"path": "str?"},
+    },
+    "get_env_var": {
+        "fn":          get_env_var,
+        "description": "Read an environment variable. Blocks sensitive keys (API keys, secrets).",
+        "args":        {"key": "str"},
+    },
+    "list_env_vars": {
+        "fn":          list_env_vars,
+        "description": "List env vars with a given prefix. Default: FORGE_ config vars.",
+        "args":        {"prefix": "str?"},
     },
 
     # ── INTERNET ──

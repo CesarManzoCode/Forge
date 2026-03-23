@@ -47,6 +47,7 @@ _TOOL_CATEGORIES = {
     "code": ["run_file", "run_code", "run_tests", "install_deps", "check_env"],
     "terminal": ["run_command", "git", "curl", "whitelist_info"],
     "internet": ["search_docs", "fetch_url", "fetch_github_raw", "docs_sources"],
+    "system":   ["env_info", "running_ports", "disk_usage", "get_env_var", "list_env_vars"],
 }
 
 _CATEGORY_KEYWORDS = {
@@ -58,6 +59,8 @@ _CATEGORY_KEYWORDS = {
                  "pull", "branch", "curl", "http", "request"],
     "internet": ["docs", "documentation", "search", "fetch", "github",
                  "api", "url", "web", "library"],
+    "system":   ["environment", "version", "port", "disk", "env", "runtime",
+                 "installed", "available", "system", "setup", "check"],
 }
 
 
@@ -98,6 +101,11 @@ class Executor:
         self.ai = ai
         self.react = ReactLoop(ai)
         self._on_update = None
+        self._stop_requested = False
+
+    def request_stop(self):
+        """Señal para detener la ejecucion al terminar la subtask actual."""
+        self._stop_requested = True
 
     # ─────────────────────────────────────────
     #  PUBLIC
@@ -168,11 +176,19 @@ class Executor:
                     "steps":   result.steps_taken,
                 })
 
-                # Reset AI entre subtasks — conserva system prompt,
-                # descarta observaciones de la subtask anterior
+                # Reset AI entre subtasks
                 exec_ai.reset()
 
-                # Re-inyectar contexto actualizado para la siguiente subtask
+                # Verificar si el usuario pidio stop
+                if self._stop_requested:
+                    task["status"] = "paused"
+                    self._save_task(task)
+                    self._emit("task_stopped", {
+                        "message": "Execution paused by user. Type /start to resume."
+                    })
+                    return
+
+                # Re-inyectar contexto actualizado
                 updated_ctx = self._read_context(CONTEXT_TASK_DIR)
                 if updated_ctx:
                     exec_ai.inject_context(updated_ctx, label="TASK CONTEXT")
