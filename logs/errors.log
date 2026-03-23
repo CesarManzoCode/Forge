@@ -1,0 +1,30 @@
+[2026-03-23 13:28:33] CRASH in main_loop
+  NameError: name 'cmd_exit' is not defined
+  Traceback (most recent call last):
+    File "/home/cesarmanzocode/Forge/interface/cli/cli.py", line 404, in main
+    cmd_exit()
+    ^^^^^^^^
+  NameError: name 'cmd_exit' is not defined. Did you mean: 'cmd_reset'?
+
+
+[2026-03-23 13:29:04] CRASH in main_loop
+  NameError: name 'cmd_exit' is not defined
+  Traceback (most recent call last):
+    File "/home/cesarmanzocode/Forge/interface/cli/cli.py", line 404, in main
+    cmd_exit()
+    ^^^^^^^^
+  NameError: name 'cmd_exit' is not defined. Did you mean: 'cmd_reset'?
+
+
+[2026-03-23 13:29:06] CRASH in main_loop
+  NameError: name 'Path' is not defined
+  Traceback (most recent call last):
+    File "/home/cesarmanzocode/Forge/interface/cli/cli.py", line 411, in main
+    cmd_reset(ai)
+    ~~~~~~~~~^^^^
+    File "/home/cesarmanzocode/Forge/interface/cli/cli.py", line 312, in cmd_reset
+    Path("context/task"),
+    ^^^^
+  NameError: name 'Path' is not defined
+
+

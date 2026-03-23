@@ -3,6 +3,7 @@ import sys
 import os
 import json
 from datetime import datetime
+from pathlib import Path
 from llm.ai import AI
 from llm.prompts import SYSTEM, Planner, Chat
 from logs.logger import logger
@@ -305,9 +306,12 @@ def cmd_status():
 def cmd_reset(ai: AI):
     ai.reset()
     print_success("History cleared. System prompt preserved.")
+
+
+def cmd_exit():
+    """Limpia el estado de sesion al salir."""
     import shutil
 
-    # Directorios que solo son validos durante una sesion
     session_dirs = [
         Path("context/task"),
         Path("context/project"),
@@ -320,7 +324,7 @@ def cmd_reset(ai: AI):
     for d in session_dirs:
         if d.exists():
             shutil.rmtree(d)
-            d.mkdir(parents=True, exist_ok=True)  # dejar carpeta vacia
+            d.mkdir(parents=True, exist_ok=True)
 
     for f in session_files:
         if f.exists():
