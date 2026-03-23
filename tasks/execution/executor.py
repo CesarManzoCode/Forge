@@ -17,7 +17,7 @@ from datetime import datetime
 from pathlib import Path
 from llm.ai import AI
 from tasks.execution.react import ReactLoop, ReactResult
-from tasks.execution.registry import registry
+from tasks.execution.registry import registry, TOOLS
 
 
 # ─────────────────────────────────────────────
@@ -82,7 +82,7 @@ def _filter_tools(subtask_description: str) -> str:
         relevant_tools.extend(_TOOL_CATEGORIES[category])
 
     lines = []
-    for name, tool in registry.TOOLS.items():
+    for name, tool in TOOLS.items():
         if name not in relevant_tools:
             continue
         args_str = ", ".join(f"{k}: {v}" for k, v in tool["args"].items())
