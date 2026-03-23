@@ -312,10 +312,10 @@ def cmd_exit():
     """Limpia el estado de sesion al salir."""
     import shutil
 
+    # Solo archivos de estado — NUNCA directorios que contengan codigo
     session_dirs = [
         Path("context/task"),
         Path("context/project"),
-        Path("tasks/execution"),
     ]
     session_files = [
         Path("tasks/project/task.json"),
