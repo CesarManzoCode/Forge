@@ -133,16 +133,22 @@ def task_status() -> str:
 #  COMMANDS
 # ─────────────────────────────────────────────
 
-def cmd_task(ai: AI):
+def cmd_task(ai: AI, active_executor: dict = None):
     status = task_status()
 
-    if status == "running":
+    # Si hay un executor activo realmente corriendo, bloquear
+    if status == "running" and active_executor and active_executor.get("ref"):
         print_agent(Chat.TASK_ALREADY_RUNNING)
         return
 
-    if status in ("planned", "error", "done", "paused"):
+    # Si el status es running pero no hay executor activo = estado huerfano
+    # (proceso murio con Ctrl+C). Tratar como si fuera error/paused.
+    if status in ("planned", "running", "error", "done", "paused"):
+        label = status
+        if status == "running":
+            label = "running (orphaned — no active executor)"
         print_section("OVERWRITE EXISTING TASK")
-        print(f"  There is already a task with status: {status}")
+        print(f"  There is already a task with status: {label}")
         sys.stdout.write("  Overwrite it? (y/N) > ")
         sys.stdout.flush()
         confirm = input().strip().lower()
@@ -181,6 +187,9 @@ def cmd_task(ai: AI):
         task_data["status"] = "planned"
         save_task_file(task_data)
         print_plan(task_data)
+        # Limpiar historial — el plan ya esta en task.json,
+        # no necesita contaminar conversaciones futuras
+        ai.reset()
 
     except Exception as e:
         print_error(f"Could not parse plan: {e}")
@@ -316,6 +325,21 @@ def cmd_reset(ai: AI):
     ai.reset()
     print_success("History cleared. System prompt preserved.")
 
+    # Si hay una tarea en estado huerfano, ofrecer limpiarla
+    status = task_status()
+    if status in ("running", "error", "paused"):
+        sys.stdout.write(f"\n  ·  Task status is '{status}'. Clear it too? (y/N) > ")
+        sys.stdout.flush()
+        try:
+            confirm = input().strip().lower()
+            if confirm == "y":
+                task_file = Path(TASK_FILE)
+                if task_file.exists():
+                    task_file.unlink()
+                print_success("Task state cleared.")
+        except Exception:
+            pass
+
 
 def cmd_exit():
     """Limpia el estado de sesion al salir."""
@@ -427,7 +451,7 @@ def main():
                 print_help()
 
             elif user_input == "/task":
-                cmd_task(ai)
+                cmd_task(ai, active_executor)
 
             elif user_input == "/start":
                 cmd_start(ai, active_executor)
@@ -438,7 +462,8 @@ def main():
             elif user_input == "/stop":
                 if active_executor["ref"]:
                     active_executor["ref"].request_stop()
-                    print_info("Stop requested — Forge will pause after the current subtask.")
+                    print_info("Stop requested — Forge will pause after the current subtask completes.")
+                    print_info("Note: /stop does not interrupt mid-subtask. Use Ctrl+C to force stop.")
                 else:
                     print_info("No task is currently running.")
 

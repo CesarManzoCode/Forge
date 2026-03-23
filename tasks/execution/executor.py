@@ -71,7 +71,9 @@ _CATEGORY_KEYWORDS = {
     "internet": ["docs", "documentation", "search", "fetch", "github",
                  "api", "url", "web", "library"],
     "system":   ["environment", "version", "port", "disk", "env", "runtime",
-                 "installed", "available", "system", "setup", "check"],
+                 "installed", "available", "system", "setup", "check",
+                 "espacio", "puerto", "entorno", "disponible", "instalado",
+                 "libre", "uso", "memoria", "space", "free", "memory"],
 }
 
 

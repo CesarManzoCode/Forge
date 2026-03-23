@@ -27,7 +27,7 @@ BASE_WHITELIST: dict[str, list[str] | None] = {
         "branch", "checkout", "stash", "show",
         "remote", "fetch", "pull", "push",
         "init", "clone", "merge", "rebase",
-        "tag", "blame", "shortlog",
+        "tag", "blame", "shortlog", "rev-parse",
     ],
     # curl — HTTP requests
     "curl": None,   # cualquier flag de curl permitido

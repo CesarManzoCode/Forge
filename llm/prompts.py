@@ -59,6 +59,9 @@ Rules:
 - Combine trivial sequential operations into one subtask.
   BAD:  1. Create file  2. Write content to file  (these are ONE write_file call)
   GOOD: 1. Create file with content
+- Do NOT combine operations that are logically separate executions or verifications.
+  BAD:  1. Run file1.py, file2.py, file3.py (these should be separate to allow pausing)
+  GOOD: 1. Run file1.py  2. Run file2.py  3. Run file3.py
 - Each subtask must be concrete and independently executable by an AI agent.
 - No subtask should require human decisions mid-execution.
 - Maximum 8 subtasks. If the task genuinely needs more, it is too large — say so.
