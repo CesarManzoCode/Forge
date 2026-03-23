@@ -333,10 +333,8 @@ def main():
                 cmd_status()
 
             else:
-                listener.start()
+                print_info("Forge is thinking...")
                 response = ai.chat(user_input)
-                listener.stop()
-                listener.flush(ai)
                 print_agent(response)
 
         except KeyboardInterrupt:
