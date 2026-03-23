@@ -175,6 +175,8 @@ def cmd_task(ai: AI):
 
 
 def cmd_start(ai: AI):
+    from tasks.execution.executor import Executor
+
     data = load_task_file()
 
     if not data:
@@ -194,15 +196,41 @@ def cmd_start(ai: AI):
     save_task_file(data)
 
     print_success(f"Starting: {data.get('title')}")
-    print_info("Type /status to check progress.")
     print()
 
-    # Execution engine connects here — tasks/execution/ coming next
-    print_agent(
-        f"Plan locked. {len(data.get('subtasks', []))} subtasks queued.\n"
-        f"Next: {data['subtasks'][0]['description']}\n\n"
-        f"[ execution engine not yet connected ]"
-    )
+    def on_update(event: str, payload):
+        if event == "subtask_start":
+            st = payload
+            print_section(f"SUBTASK {st['id']} / {len(data['subtasks'])}")
+            print(f"  {st['description']}")
+            print()
+
+        elif event == "subtask_done":
+            st = payload["subtask"]
+            print_success(f"[{st['id']}] done in {payload['steps']} steps")
+            print(f"  {payload['result'][:120]}")
+            print()
+
+        elif event == "subtask_failed":
+            print_error(f"Subtask {payload['subtask']['id']} failed")
+            print()
+            print_agent(payload["reason"])
+
+        elif event == "task_done":
+            line("═")
+            print_success("All subtasks completed.")
+            line("═")
+
+        elif event == "task_failed":
+            line("─")
+            print_error("Task stopped — requires your input to continue.")
+            line("─")
+
+    try:
+        executor = Executor(ai)
+        executor.run(on_update=on_update)
+    except Exception as e:
+        print_error(f"Execution engine error: {e}")
 
 
 def cmd_status():
