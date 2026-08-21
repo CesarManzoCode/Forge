@@ -1,5 +1,7 @@
 # Forge
 
+> **Project history:** This repository is retained as the original Forge implementation. Newer work continues in [HiperForge](https://github.com/CesarManzoCode/HiperForge).
+
 **AI Agent for Developers** — An autonomous coding assistant that plans, executes, and delivers development tasks using a ReAct reasoning loop.
 
 ```
@@ -42,7 +44,7 @@ You describe what you want. Forge plans it, shows you the plan, and executes it 
 
 ```bash
 # Clone the repository
-git clone https://github.com/youruser/forge.git
+git clone https://github.com/CesarManzoCode/Forge.git
 cd forge
 
 # Create and activate virtual environment
